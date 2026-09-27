@@ -1,80 +1,121 @@
-# Torn API MCP Gateway for ChatGPT
+# Torn API MCP App for ChatGPT
 
-A Cloudflare Workers-only remote MCP gateway for the official Torn API v2.
+Cloudflare Workers-only remote MCP App for the official Torn API v2.
 
 ## Architecture
 
-ChatGPT -> Cloudflare Worker -> live Torn OpenAPI -> dynamic MCP tools -> Torn API v2
+ChatGPT -> OAuth 2.1 -> Cloudflare Worker -> live Torn OpenAPI -> dynamic MCP tools -> Torn API v2
 
-The Worker fetches the authoritative OpenAPI document from:
+The Worker uses Cloudflare's OAuth 2.1 provider and the MCP TypeScript SDK. OAuth access tokens are resource-bound and the authenticated grant contains the user's Torn credential in encrypted OAuth-provider storage.
+
+The live Torn OpenAPI source is:
 
 https://www.torn.com/swagger/openapi.json
 
-It discovers every current OpenAPI path and HTTP operation at runtime and injects exactly one required query parameter:
+The Torn API base is:
 
-```json
-{
-  "name": "key",
-  "in": "query",
-  "required": true,
-  "description": "Your individual, personal Torn API key.",
-  "schema": { "type": "string" }
-}
-```
+https://api.torn.com/v2
 
-Torn's OpenAPI may reference ApiKeyMinimal, ApiKeyLimited, or ApiKeyPublic. The Worker resolves those parameter references and replaces them with the canonical `key` contract above.
+## Dynamic API coverage
 
-## Remote-only deployment
+At runtime the Worker:
 
-There is no application server, Docker host, VPS, local proxy, or manually maintained OpenAPI snapshot.
+1. Fetches the live Torn OpenAPI document.
+2. Iterates every current OpenAPI path and supported HTTP operation.
+3. Resolves Torn API-key parameter references.
+4. Removes any existing `key` parameter.
+5. Injects exactly one canonical required `key` parameter.
+6. Removes `key` from the model-visible tool input schema.
+7. Injects the authenticated user's Torn API key server-side immediately before the Torn request.
 
-The production endpoint is:
-
-`https://<worker-subdomain>.workers.dev/mcp`
+No endpoint count is hardcoded.
 
 ## Authentication
 
-The Worker expects an authenticated bearer credential. The bearer value must be the current user's Torn API key or a server-issued credential that the Worker securely maps to that user's Torn key.
+The MCP resource is protected with OAuth 2.1.
 
-Do not commit Torn API keys.
+During authorization, the user is shown a Cloudflare Worker authorization page and enters their personal Torn API key. The Worker validates the key against Torn's V2 `/user/profile` endpoint, derives the Torn user ID, and stores the Torn key inside the encrypted OAuth grant properties.
 
-For a shared ChatGPT project, configure OAuth 2.1 so each project participant receives an identity-bound credential. The Worker must never trust a model-supplied `key` argument.
+The Torn API key is never:
 
-## Endpoints
+- committed to GitHub;
+- placed in MCP tool arguments;
+- supplied by the model;
+- returned to ChatGPT;
+- logged in error messages.
 
-- `POST /mcp` - Streamable HTTP MCP endpoint
-- `OPTIONS /mcp` - CORS preflight
-- `GET /health` - health check
-- `GET /openapi` - live schema/operation diagnostics
+OAuth access tokens are separate from Torn API keys.
+
+## Cloudflare requirement
+
+The OAuth provider requires a KV namespace bound as `OAUTH_KV`.
+
+In Cloudflare:
+
+1. Create a Workers KV namespace.
+2. Bind it to this Worker using binding name `OAUTH_KV`.
+3. Keep the binding available to the production deployment.
+
+The repository enables the `global_fetch_strictly_public` compatibility flag because Client ID Metadata Documents are enabled for MCP client registration.
+
+## Remote endpoint
+
+Production MCP URL:
+
+`https://tornapi-plugin-gpt.kboone801.workers.dev/mcp`
+
+Health endpoint:
+
+`https://tornapi-plugin-gpt.kboone801.workers.dev/health`
+
+OAuth protected-resource discovery is provided automatically by the OAuth provider.
+
+## ChatGPT setup
+
+Create an **MCP App**.
+
+Use:
+
+- Name: `Torn API V2`
+- Description: `Personal Torn API V2 access for authenticated Torn data and actions.`
+- Connection: `https://tornapi-plugin-gpt.kboone801.workers.dev/mcp`
+- Authentication: OAuth
+
+After the OAuth-enabled deployment is live, ChatGPT should discover the authorization metadata instead of showing placeholder OAuth endpoints.
+
+If ChatGPT offers registration methods, prefer **Client Identifier Metadata Document (CIMD)** when available. DCR remains enabled as a compatibility fallback.
+
+Do not manually enter an OAuth endpoint with an `example.com` placeholder.
 
 ## Deployment
 
-1. Create a Cloudflare account.
-2. In Cloudflare Workers & Pages, choose Create application and connect the GitHub repository `SharpSplinter/tornapi-plugin-gpt`.
-3. Use the repository root as the build directory. No build command is required. Use `npx wrangler deploy` as the deploy command.
-4. Let Cloudflare Workers Builds deploy the `wrangler.toml` configuration on pushes to `main`.
-5. Copy the resulting `workers.dev` HTTPS URL and append `/mcp`.
-6. Connect that `/mcp` URL to ChatGPT.
+Cloudflare Workers Builds is the only deployment path.
 
-Cloudflare Workers Builds can manage the deployment credentials for a connected repository, so a Cloudflare API token does not need to be committed to GitHub.
+1. Connect GitHub repository `SharpSplinter/tornapi-plugin-gpt` to Cloudflare Workers Builds.
+2. Use repository root `/`.
+3. Use deploy command `npx wrangler deploy`.
+4. Pushes to `main` deploy automatically.
+5. Create and bind the `OAUTH_KV` namespace in Cloudflare before using OAuth.
+6. After the OAuth-enabled deployment succeeds, return to the ChatGPT MCP App configuration and retry OAuth discovery.
 
-For production user authentication, configure OAuth 2.1 using Cloudflare's Workers OAuth Provider or Cloudflare Access and bind the resulting authenticated subject to the user's Torn credential.
+No local server, Docker host, VPS, or manual OpenAPI snapshot is required.
 
-## Security properties
+## Security model
 
 - No master Torn API key.
-- No Torn key in source control.
-- No Torn key in tool arguments.
-- Server-side credential injection.
-- API keys are removed from OpenAPI tool schemas.
-- API-key-bearing URLs are never returned.
-- Error messages redact `key=` and bearer credentials.
-- OpenAPI discovery is live and dynamic.
-- The schema is cached briefly in the Worker isolate to reduce upstream requests.
+- Each OAuth grant is associated with one Torn user ID.
+- Torn credentials are encrypted by the OAuth provider's grant storage.
+- OAuth tokens are separately stored and validated.
+- MCP tokens are audience-bound to the MCP resource.
+- PKCE S256 is handled by the OAuth provider.
+- Client metadata discovery uses the required Cloudflare SSRF protection flag.
+- Model-supplied `key` arguments are ignored and are not exposed in tool schemas.
+- Torn API keys are redacted from error text.
+- The Worker dynamically follows the live Torn OpenAPI document.
 
-## Cloudflare Free plan considerations
+## Important limitation
 
-The Worker is designed to remain within the Cloudflare Workers Free model for modest usage. Cloudflare currently documents 100,000 Worker requests/day, 10 ms CPU/request, and 50 subrequests/request on Free. Large tool catalogs can increase MCP response size, so a future Code Mode/search-and-execute interface may be preferable if the Torn schema grows substantially.
+The original idea of scanning raw ChatGPT conversation history for a key cannot be implemented reliably by an MCP server. The authenticated OAuth credential is the authoritative security boundary. The Worker therefore refuses MCP access without a valid OAuth credential and never treats conversation text as authentication.
 
 ## License
 
