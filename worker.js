@@ -300,9 +300,7 @@ async function buildMcpHandler(env, props) {
         readOnlyHint: !["POST", "PUT", "PATCH", "DELETE"].includes(item.method),
         openWorldHint: true
       },
-      _meta: {
-        securitySchemes: [{ type: "oauth2", scopes: [MCP_SCOPE] }]
-      }
+      securitySchemes: [{ type: "oauth2", scopes: [MCP_SCOPE] }]
     }, async (args) => callTorn(env, key, item.operation, args || {}));
   }
 
