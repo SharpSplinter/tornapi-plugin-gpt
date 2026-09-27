@@ -207,29 +207,12 @@ function authorizeErrorResponse(error) {
 }
 
 
-async function parseAuthRequestCompat(oauth, request) {
-  const url = new URL(request.url);
-  if (url.searchParams.get("client_id")) return oauth.parseAuthRequest(request);
-
-  const redirectUri = url.searchParams.get("redirect_uri");
-  if (!redirectUri) return oauth.parseAuthRequest(request);
-
-  const clients = await oauth.listClients({ limit: 100 });
-  const matches = (clients?.items || []).filter(client =>
-    Array.isArray(client.redirectUris) && client.redirectUris.includes(redirectUri)
-  );
-
-  if (matches.length !== 1) return oauth.parseAuthRequest(request);
-
-  url.searchParams.set("client_id", matches[0].clientId);
-  return oauth.parseAuthRequest(new Request(url, request));
-}
 
 async function authorize(request, env) {
   const oauth = env.OAUTH_PROVIDER;
   let oauthRequest;
   try {
-    oauthRequest = await parseAuthRequestCompat(oauth, request);
+    oauthRequest = await oauth.parseAuthRequest(request);
   } catch (error) {
     return authorizeErrorResponse(error);
   }
@@ -264,7 +247,7 @@ async function authorize(request, env) {
   authUrl.search = query.startsWith("?") ? query : `?${query}`;
   let approvedRequest;
   try {
-    approvedRequest = await parseAuthRequestCompat(oauth, new Request(authUrl, { method: "GET", headers: request.headers }));
+    approvedRequest = await oauth.parseAuthRequest(new Request(authUrl, { method: "GET", headers: request.headers }));
   } catch (error) {
     return authorizeErrorResponse(error);
   }
@@ -357,7 +340,6 @@ export default new OAuthProvider({
   defaultHandler,
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/oauth/token",
-  clientRegistrationEndpoint: "/oauth/register",
   scopesSupported: [MCP_SCOPE],
   resourceMetadata: {
     resource: MCP_RESOURCE,
