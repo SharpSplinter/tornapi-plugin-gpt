@@ -215,16 +215,22 @@ async function parseAuthRequestCompat(oauth, request) {
   const redirectUri = url.searchParams.get("redirect_uri");
   if (!redirectUri) return oauth.parseAuthRequest(request);
 
-  // Legacy ChatGPT connections may omit client_id while retaining the
-  // registered redirect URI. Recover the unique pre-registered client.
-  const clients = await oauth.listClients({ limit: 100 });
-  const matches = (clients?.items || []).filter(client =>
-    Array.isArray(client.redirectUris) && client.redirectUris.includes(redirectUri)
-  );
+  // Current ChatGPT OAuth uses Client ID Metadata Documents.
+  let clientId = null;
+  try {
+    const redirect = new URL(redirectUri);
+    if (redirect.origin === "https://chatgpt.com") {
+      if (redirect.href === "https://chatgpt.com/connector_platform_oauth_redirect") {
+        clientId = "https://chatgpt.com/oauth/client.json";
+      } else {
+        const match = redirect.pathname.match(/^\/connector\/oauth\/([^/]+)$/);
+        if (match) clientId = "https://chatgpt.com/oauth/" + match[1] + "/client.json";
+      }
+    }
+  } catch {}
 
-  if (matches.length !== 1) return oauth.parseAuthRequest(request);
-
-  url.searchParams.set("client_id", matches[0].clientId);
+  if (!clientId) return oauth.parseAuthRequest(request);
+  url.searchParams.set("client_id", clientId);
   return oauth.parseAuthRequest(new Request(url, request));
 }
 
