@@ -255,30 +255,35 @@ async function authorize(request, env) {
 
   if (request.method === "GET") {
     let oauthRequest;
+    let client;
     try {
       oauthRequest = await parseAuthRequestCompat(oauth, request);
-      const details = await oauth.describeConsent(oauthRequest);
-      const consent = await oauth.beginConsent(oauthRequest);
-      consent.headers.set("Content-Type", "text/html; charset=utf-8");
-      consent.headers.set("Cache-Control", "no-store");
-      consent.headers.set("Referrer-Policy", "no-referrer");
+      client = await oauth.lookupClient(oauthRequest.clientId);
+      if (!client) return authorizeFailure("OAuth client", new Error("Unknown OAuth client."), 400);
 
-      const scopes = details.scope
-        .filter(scope => scope === MCP_SCOPE)
-        .map(scope => `<label><input type="checkbox" name="scope" value="${htmlEscape(scope)}" checked disabled> ${htmlEscape(scope)}</label>`)
-        .join("<br>");
+      const handle = crypto.randomUUID();
+      await env.OAUTH_KV.put(
+        `oauth:consent:${handle}`,
+        JSON.stringify({ authorizationUrl: new URL(request.url).href }),
+        { expirationTtl: 600 }
+      );
 
-      const clientIdentity = details.clientDomain
-        ? `Published by <strong>${htmlEscape(details.clientDomain)}</strong>.`
-        : "This app registered itself; its name is not verified.";
+      const redirectHost = (() => {
+        try { return new URL(oauthRequest.redirectUri).host; }
+        catch { return "the requesting app"; }
+      })();
+      const scopes = oauthRequest.scope.filter(scope => scope === MCP_SCOPE);
+      const headers = new Headers({
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer"
+      });
 
-      const loopbackWarning = details.redirectIsLoopback
-        ? "<p><strong>This sends access to an app on your computer.</strong> Continue only if you just started signing in from it.</p>"
-        : "";
-
-      const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Authorize ${htmlEscape(details.clientName)}</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}input,button{font:inherit;box-sizing:border-box;padding:12px;margin-top:8px}#key{width:100%}button{cursor:pointer;width:100%}code{word-break:break-word}</style></head><body><h1>Authorize ${htmlEscape(details.clientName)}</h1><p>${clientIdentity} Access will be sent to <strong>${htmlEscape(details.redirectHost)}</strong>.</p>${loopbackWarning}<p>Enter your personal Torn API key. It is validated directly with Torn and stored only in the encrypted OAuth grant. It is never sent to ChatGPT as a tool argument.</p><p>Requested permission:</p><p>${scopes || htmlEscape(MCP_SCOPE)}</p><form method="post" action="/authorize"><input type="hidden" name="handle" value="${htmlEscape(consent.handle)}"><input type="hidden" name="scope" value="${htmlEscape(MCP_SCOPE)}"><label for="key">Personal Torn API key</label><input id="key" name="key" type="password" autocomplete="off" required minlength="8"><button type="submit">Connect Torn account</button></form></body></html>`;
-
-      return new Response(page, { status: 200, headers: consent.headers });
+      return new Response(
+        `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Torn API V2 authorization</title><style>body{font-family:system-ui,sans-serif;max-width:620px;margin:48px auto;padding:0 20px;line-height:1.5}input,button{font:inherit;width:100%;box-sizing:border-box;padding:12px;margin-top:8px}button{cursor:pointer}code{word-break:break-all}</style></head><body><h1>Torn API V2</h1><p><strong>${htmlEscape(client.clientName || "ChatGPT")}</strong> is requesting access for <code>${htmlEscape(redirectHost)}</code>.</p><p>Enter your personal Torn API key. It is validated directly with Torn and stored only inside the encrypted OAuth grant. It is never sent to ChatGPT as a tool argument.</p><p>Requested permission: ${htmlEscape(scopes.join(", ") || MCP_SCOPE)}</p><form method="post" action="/authorize"><input type="hidden" name="handle" value="${htmlEscape(handle)}"><label for="key">Personal Torn API key</label><input id="key" name="key" type="password" autocomplete="off" required minlength="8"><button type="submit">Connect Torn account</button></form></body></html>`,
+        { status: 200, headers }
+      );
     } catch (error) {
       if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
       return authorizeFailure("OAuth consent setup", error, 500);
@@ -298,10 +303,36 @@ async function authorize(request, env) {
 
   const handle = String(form.get("handle") || "");
   const key = String(form.get("key") || "").trim();
-  const requestedScopes = form.getAll("scope").map(String).filter(scope => scope === MCP_SCOPE);
-
   if (!handle) return authorizeFailure("Consent session", new Error("The authorization handle is missing. Start the connection again."), 400);
-  if (!requestedScopes.includes(MCP_SCOPE)) return authorizeFailure("Consent scope", new Error("The requested MCP permission is missing."), 400);
+
+  let session;
+  try {
+    session = await env.OAUTH_KV.get(`oauth:consent:${handle}`, "json");
+  } catch (error) {
+    return authorizeFailure("OAuth storage lookup", error, 500);
+  }
+  if (!session?.authorizationUrl) {
+    return authorizeFailure("Consent session", new Error("The authorization session expired. Start the connection again."), 400);
+  }
+
+  let approvedRequest;
+  try {
+    approvedRequest = await parseAuthRequestCompat(
+      oauth,
+      new Request(session.authorizationUrl, { method: "GET" })
+    );
+  } catch (error) {
+    if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
+    return authorizeFailure("OAuth request validation", error, 400);
+  }
+
+  let client;
+  try {
+    client = await oauth.lookupClient(approvedRequest.clientId);
+  } catch (error) {
+    return authorizeFailure("OAuth client lookup", error, 400);
+  }
+  if (!client) return authorizeFailure("OAuth client", new Error("Unknown OAuth client."), 400);
 
   let user;
   try {
@@ -309,41 +340,39 @@ async function authorize(request, env) {
   } catch (error) {
     return authorizeFailure("Torn API key validation", error, 502);
   }
-
   if (!user) {
     return authorizeFailure("Torn API key validation", new Error("The Torn API key could not be validated. Check the key and try again."), 401);
   }
 
-  let approved;
-  try {
-    approved = await oauth.approveConsent(request, handle, { scope: requestedScopes });
-  } catch (error) {
-    if (error instanceof AuthorizationError) return authorizeFailure("Consent approval", error, 400);
-    return authorizeFailure("Consent approval", error, 500);
+  const grantedScopes = approvedRequest.scope.filter(scope => scope === MCP_SCOPE);
+  if (!grantedScopes.includes(MCP_SCOPE)) {
+    return authorizeFailure("OAuth scope", new Error("The requested MCP permission is unavailable."), 400);
   }
 
   try {
-    const { redirectTo } = await oauth.completeAuthorization({
-      request: approved.request,
+    const result = await oauth.completeAuthorization({
+      request: approvedRequest,
       userId: user.id,
       metadata: {
-        clientName: (approved.request.clientId || "ChatGPT").startsWith("https://chatgpt.com/")
-          ? "ChatGPT"
-          : "Torn API V2 client",
+        clientName: client.clientName || "ChatGPT",
         tornUserId: user.id,
         tornDisplayName: user.name
       },
-      scope: approved.request.scope,
+      scope: grantedScopes,
       props: { tornApiKey: key, tornUserId: user.id, displayName: user.name }
     });
 
-    approved.headers.set("Location", redirectTo);
-    approved.headers.set("Cache-Control", "no-store");
-    approved.headers.set("Referrer-Policy", "no-referrer");
-    return new Response(null, { status: 302, headers: approved.headers });
+    await env.OAUTH_KV.delete(`oauth:consent:${handle}`);
+
+    const headers = new Headers(CORS);
+    headers.set("Location", result.redirectTo);
+    headers.set("Cache-Control", "no-store");
+    headers.set("Referrer-Policy", "no-referrer");
+    return new Response(null, { status: 302, headers });
   } catch (error) {
     return authorizeFailure("OAuth grant completion", error, 500);
   }
+}
 }
 
 const OAUTH_RESOURCE_METADATA =
