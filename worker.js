@@ -200,7 +200,11 @@ async function parseAuthRequestCompat(oauth, request) {
   const suppliedClientId = url.searchParams.get("client_id");
   const suppliedRedirectUri = url.searchParams.get("redirect_uri");
 
-  if (suppliedClientId) {\n    const responseType = url.searchParams.get("response_type");\n    if (!responseType) url.searchParams.set("response_type", "code");\n    return oauth.parseAuthRequest(new Request(url, request));\n  }
+  if (suppliedClientId) {
+    const responseType = url.searchParams.get("response_type");
+    if (!responseType) url.searchParams.set("response_type", "code");
+    return oauth.parseAuthRequest(new Request(url, request));
+  }
 
   const stableClientId = "https://chatgpt.com/oauth/client.json";
   const stableRedirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -276,7 +280,13 @@ async function authorize(request, env) {
       const handle = crypto.randomUUID();
       await env.OAUTH_KV.put(
         `oauth:consent:${handle}`,
-        JSON.stringify({ authorizationUrl: (() => {\n          const stored = new URL(request.url);\n          stored.searchParams.set("client_id", oauthRequest.clientId);\n          stored.searchParams.set("redirect_uri", oauthRequest.redirectUri);\n          stored.searchParams.set("response_type", oauthRequest.responseType || "code");\n          return stored.href;\n        })() }),
+        JSON.stringify({ authorizationUrl: (() => {
+          const stored = new URL(request.url);
+          stored.searchParams.set("client_id", oauthRequest.clientId);
+          stored.searchParams.set("redirect_uri", oauthRequest.redirectUri);
+          stored.searchParams.set("response_type", oauthRequest.responseType || "code");
+          return stored.href;
+        })() }),
         { expirationTtl: 600 }
       );
 
@@ -411,7 +421,9 @@ async function buildMcpHandler(env, props) {
   for (const item of operations) {
     server.registerTool(item.name, {
       title: item.operation.summary || item.name,
-      description: [item.operation.summary, item.operation.description, `Torn API ${item.method} ${item.path}`].filter(Boolean).join("\n\n"),
+      description: [item.operation.summary, item.operation.description, `Torn API ${item.method} ${item.path}`].filter(Boolean).join("
+
+"),
       inputSchema: fromJsonSchema(inputSchema(item.operation)),
       annotations: {
         readOnlyHint: !["POST", "PUT", "PATCH", "DELETE"].includes(item.method),
