@@ -146,9 +146,7 @@ async function callTorn(env, key, operation, args) {
     if (Array.isArray(value)) value.forEach(item => url.searchParams.append(p.name, String(item)));
     else url.searchParams.set(p.name, String(value));
   }
-  url.searchParams.set("key", key);
-
-  const init = { method: operation.method, headers: { Accept: "application/json", "User-Agent": envValue(env, "TORN_USER_AGENT", DEFAULT_USER_AGENT) } };
+  const init = { method: operation.method, headers: { Accept: "application/json", Authorization: `ApiKey ${key}`, "User-Agent": envValue(env, "TORN_USER_AGENT", DEFAULT_USER_AGENT) } };
   if (args?.body !== undefined && operation.requestBody) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(args.body);
@@ -178,12 +176,14 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 12000) {
 async function validateTornKey(env, key) {
   if (!validKey(key)) return null;
   const url = new URL(`${envValue(env, "TORN_API_BASE", DEFAULT_API_BASE)}/user/profile`);
-  url.searchParams.set("key", key);
   const response = await fetchWithTimeout(url, {
-    headers: { Accept: "application/json", "User-Agent": envValue(env, "TORN_USER_AGENT", DEFAULT_USER_AGENT) }
+    headers: { Accept: "application/json", Authorization: `ApiKey ${key}`, "User-Agent": envValue(env, "TORN_USER_AGENT", DEFAULT_USER_AGENT) }
   }, 12000);
-  if (!response.ok) return null;
   const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = payload?.error?.error || payload?.error?.description || payload?.error || `HTTP ${response.status}`;
+    throw new Error(`Torn rejected the API key: ${String(detail).slice(0, 300)}`);
+  }
   if (!payload || typeof payload !== "object") return null;
   const profile = payload?.profile ?? payload?.user ?? payload;
   const id = profile?.id ?? profile?.user_id;
@@ -479,5 +479,8 @@ export default new OAuthProvider({
   },
   requiredScopes: [MCP_SCOPE],
   clientIdMetadataDocumentEnabled: true,
-  clientRegistrationEndpoint: "/oauth/register"
+  clientRegistrationEndpoint: "/oauth/register",
+  onError: (error) => {
+    console.error("OAuth provider error", JSON.stringify({ code: error.code, description: error.description, internal: error.internal }));
+  }
 });
