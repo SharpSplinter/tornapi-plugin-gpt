@@ -296,7 +296,8 @@ async function authorize(request, env) {
       userId: user.id,
       metadata: { clientName: client.clientName || "ChatGPT", tornUserId: user.id, tornDisplayName: user.name },
       scope: grantedScopes,
-      props: { tornApiKey: key, tornUserId: user.id, displayName: user.name }
+      props: { tornApiKey: key, tornUserId: user.id, displayName: user.name },
+      revokeExistingGrants: false
     });
 
     if (!redirectTo) {
@@ -306,7 +307,8 @@ async function authorize(request, env) {
     }
 
     const safeRedirect = htmlEscape(redirectTo);
-    return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=${safeRedirect}"><title>Connecting to ChatGPT</title></head><body><p>Authorization successful. Returning to ChatGPT...</p><p>If you are not redirected automatically, <a href="${safeRedirect}">continue to ChatGPT</a>.</p><script>window.location.replace(${JSON.stringify(redirectTo)});</script></body></html>`, {
+    const redirectForPage = JSON.stringify(redirectTo).replace(/</g, "\\u003c");
+    return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=${safeRedirect}"><title>Connecting to ChatGPT</title></head><body><p>Authorization successful. Returning to ChatGPT...</p><p>If you are not redirected automatically, <a href="${safeRedirect}">continue to ChatGPT</a>.</p><script>window.location.href=\${redirectForPage};</script></body></html>`, {
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
