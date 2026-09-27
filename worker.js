@@ -428,6 +428,9 @@ async function authorize(request, env) {
       redirectHasCode: !!redirectUrl?.searchParams.has("code"),
       redirectHasState: !!redirectUrl?.searchParams.has("state"),
       redirectHasIss: !!redirectUrl?.searchParams.has("iss"),
+      redirectIss: redirectUrl?.searchParams.get("iss") || "",
+      redirectIssMatchesExpected: redirectUrl?.searchParams.get("iss") === new URL(MCP_RESOURCE).origin,
+      expectedIssuer: new URL(MCP_RESOURCE).origin,
       redirectParameterNames: redirectUrl
         ? [...redirectUrl.searchParams.keys()]
         : []
