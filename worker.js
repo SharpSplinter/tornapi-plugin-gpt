@@ -196,38 +196,66 @@ function htmlEscape(value) {
 }
 
 const CHATGPT_CLIENT_ID = "chatgpt-torn-mcp-client";
+const CHATGPT_REDIRECT_ORIGIN = "https://chatgpt.com";
 
-async function ensureChatGPTClient(oauth, redirectUri) {
-  let client = await oauth.lookupClient(CHATGPT_CLIENT_ID);
-  if (!client) {
-    client = await oauth.createClient({
-      clientId: CHATGPT_CLIENT_ID,
-      clientName: "ChatGPT",
-      redirectUris: [redirectUri]
-    });
-  } else if (!client.redirectUris.includes(redirectUri)) {
-    client = await oauth.updateClient(CHATGPT_CLIENT_ID, { redirectUris: [...client.redirectUris, redirectUri] });
+function isChatGPTClientId(clientId) {
+  try {
+    const url = new URL(clientId);
+    return url.origin === CHATGPT_REDIRECT_ORIGIN && url.pathname !== "";
+  } catch {
+    return false;
   }
+}
+
+async function ensureLocalChatGPTClient(env, clientId, redirectUri) {
+  if (!clientId) clientId = CHATGPT_CLIENT_ID;
+  const existing = await env.OAUTH_KV.get(`client:${clientId}`, "json");
+  if (existing) {
+    if (!Array.isArray(existing.redirectUris) || !existing.redirectUris.includes(redirectUri)) {
+      existing.redirectUris = [...new Set([...(existing.redirectUris || []), redirectUri])];
+      await env.OAUTH_KV.put(`client:${clientId}`, JSON.stringify(existing));
+    }
+    return existing;
+  }
+
+  const client = {
+    clientId,
+    redirectUris: [redirectUri],
+    clientName: "ChatGPT",
+    grantTypes: ["authorization_code"],
+    responseTypes: ["code"],
+    tokenEndpointAuthMethod: "none",
+    registrationDate: Math.floor(Date.now() / 1000)
+  };
+  await env.OAUTH_KV.put(`client:${clientId}`, JSON.stringify(client));
   return client;
 }
 
-async function parseAuthRequestCompat(oauth, request) {
+async function parseAuthRequestCompat(env, oauth, request) {
   const url = new URL(request.url);
+  const suppliedClientId = url.searchParams.get("client_id");
   const suppliedRedirectUri = url.searchParams.get("redirect_uri");
   const stableRedirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
   const redirectUri = suppliedRedirectUri || stableRedirectUri;
   let isChatGPT = false;
   try {
     const redirect = new URL(redirectUri);
-    isChatGPT = redirect.origin === "https://chatgpt.com" && (redirect.href === stableRedirectUri || /^\/connector\/oauth\/[^/]+$/.test(redirect.pathname));
+    isChatGPT = redirect.origin === CHATGPT_REDIRECT_ORIGIN &&
+      (redirect.href === stableRedirectUri || /^\\/connector\\/oauth\\/[^/]+$/.test(redirect.pathname));
   } catch {}
+
   if (isChatGPT) {
-    await ensureChatGPTClient(oauth, redirectUri);
-    url.searchParams.set("client_id", CHATGPT_CLIENT_ID);
+    if (suppliedClientId && !isChatGPTClientId(suppliedClientId)) {
+      throw new AuthorizationError("invalid_client", "The supplied client_id is not a ChatGPT client identifier.");
+    }
+    const clientId = suppliedClientId || CHATGPT_CLIENT_ID;
+    await ensureLocalChatGPTClient(env, clientId, redirectUri);
+    url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", redirectUri);
     if (!url.searchParams.get("response_type")) url.searchParams.set("response_type", "code");
     return oauth.parseAuthRequest(new Request(url, request));
   }
+
   if (url.searchParams.get("client_id")) {
     if (!url.searchParams.get("response_type")) url.searchParams.set("response_type", "code");
     return oauth.parseAuthRequest(new Request(url, request));
@@ -277,7 +305,7 @@ async function authorize(request, env) {
     let oauthRequest;
     let client;
     try {
-      oauthRequest = await parseAuthRequestCompat(oauth, request);
+      oauthRequest = await parseAuthRequestCompat(env, oauth, request);
       client = await oauth.lookupClient(oauthRequest.clientId);
       if (!client) return authorizeFailure("OAuth client", new Error("Unknown OAuth client."), 400);
 
@@ -482,7 +510,7 @@ export default new OAuthProvider({
     resource_name: "Torn API V2"
   },
   requiredScopes: [MCP_SCOPE],
-  clientIdMetadataDocumentEnabled: true,
+  clientIdMetadataDocumentEnabled: false,
   clientRegistrationEndpoint: "/oauth/register",
   onError: (error) => {
     console.error("OAuth provider error", JSON.stringify({ code: error.code, description: error.description, internal: error.internal }));
