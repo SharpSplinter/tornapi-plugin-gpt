@@ -206,11 +206,30 @@ function authorizeErrorResponse(error) {
   return Response.redirect(redirect.href, 302);
 }
 
+
+async function parseAuthRequestCompat(oauth, request) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("client_id")) return oauth.parseAuthRequest(request);
+
+  const redirectUri = url.searchParams.get("redirect_uri");
+  if (!redirectUri) return oauth.parseAuthRequest(request);
+
+  const clients = await oauth.listClients({ limit: 100 });
+  const matches = (clients?.items || []).filter(client =>
+    Array.isArray(client.redirectUris) && client.redirectUris.includes(redirectUri)
+  );
+
+  if (matches.length !== 1) return oauth.parseAuthRequest(request);
+
+  url.searchParams.set("client_id", matches[0].clientId);
+  return oauth.parseAuthRequest(new Request(url, request));
+}
+
 async function authorize(request, env) {
   const oauth = env.OAUTH_PROVIDER;
   let oauthRequest;
   try {
-    oauthRequest = await oauth.parseAuthRequest(request);
+    oauthRequest = await parseAuthRequestCompat(oauth, request);
   } catch (error) {
     return authorizeErrorResponse(error);
   }
@@ -245,7 +264,7 @@ async function authorize(request, env) {
   authUrl.search = query.startsWith("?") ? query : `?${query}`;
   let approvedRequest;
   try {
-    approvedRequest = await oauth.parseAuthRequest(new Request(authUrl, { method: "GET", headers: request.headers }));
+    approvedRequest = await parseAuthRequestCompat(oauth, new Request(authUrl, { method: "GET", headers: request.headers }));
   } catch (error) {
     return authorizeErrorResponse(error);
   }
