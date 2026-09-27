@@ -421,9 +421,7 @@ async function buildMcpHandler(env, props) {
   for (const item of operations) {
     server.registerTool(item.name, {
       title: item.operation.summary || item.name,
-      description: [item.operation.summary, item.operation.description, `Torn API ${item.method} ${item.path}`].filter(Boolean).join("
-
-"),
+      description: [item.operation.summary, item.operation.description, `Torn API ${item.method} ${item.path}`].filter(Boolean).join("\n"),
       inputSchema: fromJsonSchema(inputSchema(item.operation)),
       annotations: {
         readOnlyHint: !["POST", "PUT", "PATCH", "DELETE"].includes(item.method),
