@@ -453,7 +453,7 @@ const defaultHandler = {
   }
 };
 
-export default new OAuthProvider({
+const oauthProvider = new OAuthProvider({
   apiRoute: "/mcp",
   apiHandler,
   defaultHandler,
@@ -489,3 +489,43 @@ export default new OAuthProvider({
     }));
   }
 });
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const isTokenEndpoint = url.pathname === "/oauth/token";
+    const isMcpEndpoint = url.pathname === "/mcp";
+
+    if (isTokenEndpoint || isMcpEndpoint) {
+      console.log("OAuth/MCP request boundary", {
+        method: request.method,
+        path: url.pathname,
+        contentType: request.headers.get("content-type") || "",
+        authorizationPresent: !!request.headers.get("authorization"),
+        mcpProtocolVersion: request.headers.get("MCP-Protocol-Version") || "",
+        mcpSessionIdPresent: !!request.headers.get("Mcp-Session-Id")
+      });
+    }
+
+    try {
+      const response = await oauthProvider.fetch(request, env, ctx);
+
+      if (isTokenEndpoint || isMcpEndpoint) {
+        console.log("OAuth/MCP response boundary", {
+          method: request.method,
+          path: url.pathname,
+          status: response.status
+        });
+      }
+
+      return response;
+    } catch (error) {
+      console.error("OAuth/MCP boundary exception", {
+        method: request.method,
+        path: url.pathname,
+        error: safeError(error)
+      });
+      throw error;
+    }
+  }
+};
