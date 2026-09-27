@@ -210,27 +210,33 @@ function authorizeErrorResponse(error) {
 
 async function parseAuthRequestCompat(oauth, request) {
   const url = new URL(request.url);
-  if (url.searchParams.get("client_id")) return oauth.parseAuthRequest(request);
+  const suppliedClientId = url.searchParams.get("client_id");
+  const suppliedRedirectUri = url.searchParams.get("redirect_uri");
 
-  const redirectUri = url.searchParams.get("redirect_uri");
-  if (!redirectUri) return oauth.parseAuthRequest(request);
+  if (suppliedClientId) return oauth.parseAuthRequest(request);
 
-  // Current ChatGPT OAuth uses Client ID Metadata Documents.
-  let clientId = null;
-  try {
-    const redirect = new URL(redirectUri);
-    if (redirect.origin === "https://chatgpt.com") {
-      if (redirect.href === "https://chatgpt.com/connector_platform_oauth_redirect") {
-        clientId = "https://chatgpt.com/oauth/client.json";
-      } else {
+  const stableClientId = "https://chatgpt.com/oauth/client.json";
+  const stableRedirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
+  let clientId = stableClientId;
+  let redirectUri = suppliedRedirectUri || stableRedirectUri;
+
+  if (suppliedRedirectUri) {
+    try {
+      const redirect = new URL(suppliedRedirectUri);
+      if (redirect.origin !== "https://chatgpt.com") return oauth.parseAuthRequest(request);
+      if (redirect.href === stableRedirectUri) clientId = stableClientId;
+      else {
         const match = redirect.pathname.match(/^\/connector\/oauth\/([^/]+)$/);
         if (match) clientId = "https://chatgpt.com/oauth/" + match[1] + "/client.json";
+        else return oauth.parseAuthRequest(request);
       }
+    } catch {
+      return oauth.parseAuthRequest(request);
     }
-  } catch {}
+  }
 
-  if (!clientId) return oauth.parseAuthRequest(request);
   url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
   return oauth.parseAuthRequest(new Request(url, request));
 }
 
