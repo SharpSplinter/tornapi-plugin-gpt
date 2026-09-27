@@ -372,7 +372,7 @@ async function authorize(request, env) {
       },
       scope: grantedScopes,
       props: { tornApiKey: key, tornUserId: user.id, displayName: user.name }
-    });
+    }), 20000, "OAuth grant completion");
 
     await env.OAUTH_KV.delete(`oauth:consent:${handle}`);
 
