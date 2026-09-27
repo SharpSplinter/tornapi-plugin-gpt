@@ -469,7 +469,6 @@ const oauthProvider = new OAuthProvider({
   },
   requiredScopes: [MCP_SCOPE],
   clientIdMetadataDocumentEnabled: true,
-  clientRegistrationEndpoint: "/oauth/register",
   tokenExchangeCallback: async (options) => {
     console.log("OAuth token exchange reached", {
       grantType: options.grantType,
