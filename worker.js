@@ -195,40 +195,44 @@ function htmlEscape(value) {
   return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
 }
 
+const CHATGPT_CLIENT_ID = "chatgpt-torn-mcp-client";
+
+async function ensureChatGPTClient(oauth, redirectUri) {
+  let client = await oauth.lookupClient(CHATGPT_CLIENT_ID);
+  if (!client) {
+    client = await oauth.createClient({
+      clientId: CHATGPT_CLIENT_ID,
+      clientName: "ChatGPT",
+      redirectUris: [redirectUri]
+    });
+  } else if (!client.redirectUris.includes(redirectUri)) {
+    client = await oauth.updateClient(CHATGPT_CLIENT_ID, { redirectUris: [...client.redirectUris, redirectUri] });
+  }
+  return client;
+}
+
 async function parseAuthRequestCompat(oauth, request) {
   const url = new URL(request.url);
-  const suppliedClientId = url.searchParams.get("client_id");
   const suppliedRedirectUri = url.searchParams.get("redirect_uri");
-
-  if (suppliedClientId) {
-    const responseType = url.searchParams.get("response_type");
-    if (!responseType) url.searchParams.set("response_type", "code");
+  const stableRedirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
+  const redirectUri = suppliedRedirectUri || stableRedirectUri;
+  let isChatGPT = false;
+  try {
+    const redirect = new URL(redirectUri);
+    isChatGPT = redirect.origin === "https://chatgpt.com" && (redirect.href === stableRedirectUri || /^\\/connector\\/oauth\\/[^/]+$/.test(redirect.pathname));
+  } catch {}
+  if (isChatGPT) {
+    await ensureChatGPTClient(oauth, redirectUri);
+    url.searchParams.set("client_id", CHATGPT_CLIENT_ID);
+    url.searchParams.set("redirect_uri", redirectUri);
+    if (!url.searchParams.get("response_type")) url.searchParams.set("response_type", "code");
     return oauth.parseAuthRequest(new Request(url, request));
   }
-
-  const stableClientId = "https://chatgpt.com/oauth/client.json";
-  const stableRedirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
-  let clientId = stableClientId;
-  let redirectUri = suppliedRedirectUri || stableRedirectUri;
-
-  if (suppliedRedirectUri) {
-    try {
-      const redirect = new URL(suppliedRedirectUri);
-      if (redirect.origin !== "https://chatgpt.com") return oauth.parseAuthRequest(request);
-      if (redirect.href === stableRedirectUri) clientId = stableClientId;
-      else {
-        const match = redirect.pathname.match(/^\/connector\/oauth\/([^/]+)$/);
-        if (match) clientId = "https://chatgpt.com/oauth/" + match[1] + "/client.json";
-        else return oauth.parseAuthRequest(request);
-      }
-    } catch {
-      return oauth.parseAuthRequest(request);
-    }
+  if (url.searchParams.get("client_id")) {
+    if (!url.searchParams.get("response_type")) url.searchParams.set("response_type", "code");
+    return oauth.parseAuthRequest(new Request(url, request));
   }
-
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", redirectUri);
-  return oauth.parseAuthRequest(new Request(url, request));
+  return oauth.parseAuthRequest(request);
 }
 
 function authorizeFailure(stage, error, status = 500) {
