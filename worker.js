@@ -246,7 +246,7 @@ async function authorize(request, env) {
     let oauthRequest;
     let client;
     try {
-      oauthRequest = await parseAuthRequestCompat(env, oauth, request);
+      oauthRequest = await parseAuthRequestCompat(oauth, request);
       client = await oauth.lookupClient(oauthRequest.clientId);
       if (!client) return authorizeFailure("OAuth client", new Error("Unknown OAuth client."), 400);
 
