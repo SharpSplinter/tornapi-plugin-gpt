@@ -213,7 +213,7 @@ function oauthHandoffInfo(url) {
     };
   }
 
-  const callbackMatch = url.pathname.match(/^\\/connector\\/oauth\\/([^/]+)$/);
+  const callbackMatch = url.pathname.match(/^\/connector\/oauth\/([^/]+)$/);
   if (callbackMatch) {
     const callbackId = callbackMatch[1];
     return {
