@@ -200,7 +200,7 @@ async function parseAuthRequestCompat(oauth, request) {
   const suppliedClientId = url.searchParams.get("client_id");
   const suppliedRedirectUri = url.searchParams.get("redirect_uri");
 
-  if (suppliedClientId) return oauth.parseAuthRequest(request);
+  if (suppliedClientId) {\n    const responseType = url.searchParams.get("response_type");\n    if (!responseType) url.searchParams.set("response_type", "code");\n    return oauth.parseAuthRequest(new Request(url, request));\n  }
 
   const stableClientId = "https://chatgpt.com/oauth/client.json";
   const stableRedirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -276,7 +276,7 @@ async function authorize(request, env) {
       const handle = crypto.randomUUID();
       await env.OAUTH_KV.put(
         `oauth:consent:${handle}`,
-        JSON.stringify({ authorizationUrl: new URL(request.url).href }),
+        JSON.stringify({ authorizationUrl: (() => {\n          const stored = new URL(request.url);\n          stored.searchParams.set("client_id", oauthRequest.clientId);\n          stored.searchParams.set("redirect_uri", oauthRequest.redirectUri);\n          stored.searchParams.set("response_type", oauthRequest.responseType || "code");\n          return stored.href;\n        })() }),
         { expirationTtl: 600 }
       );
 
