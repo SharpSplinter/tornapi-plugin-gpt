@@ -360,6 +360,23 @@ async function authorize(request, env) {
 
     await env.OAUTH_KV.delete(`oauth:consent:${handle}`);
 
+    const redirectUrl = (() => {
+      try {
+        return new URL(result.redirectTo);
+      } catch {
+        return null;
+      }
+    })();
+
+    console.log("OAuth authorization completed", {
+      redirectUrlValid: !!redirectUrl,
+      redirectHost: redirectUrl?.host || "invalid-url",
+      redirectPath: redirectUrl?.pathname || "invalid-url",
+      redirectParameterNames: redirectUrl
+        ? [...redirectUrl.searchParams.keys()]
+        : []
+    });
+
     const headers = new Headers(CORS);
     headers.set("Location", result.redirectTo);
     headers.set("Cache-Control", "no-store");
