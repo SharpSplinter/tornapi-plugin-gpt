@@ -159,15 +159,31 @@ async function callTorn(env, key, operation, args) {
   return { isError: !response.ok, content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
 }
 
+async function fetchWithTimeout(url, init = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Upstream request timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function validateTornKey(env, key) {
   if (!validKey(key)) return null;
   const url = new URL(`${envValue(env, "TORN_API_BASE", DEFAULT_API_BASE)}/user/profile`);
   url.searchParams.set("key", key);
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: { Accept: "application/json", "User-Agent": envValue(env, "TORN_USER_AGENT", DEFAULT_USER_AGENT) }
-  });
+  }, 12000);
   if (!response.ok) return null;
-  const payload = await response.json();
+  const payload = await response.json().catch(() => null);
+  if (!payload || typeof payload !== "object") return null;
   const profile = payload?.profile ?? payload?.user ?? payload;
   const id = profile?.id ?? profile?.user_id;
   if (id === undefined || id === null) return null;
@@ -204,6 +220,15 @@ function authorizeErrorResponse(error) {
   if (error.state) redirect.searchParams.set("state", error.state);
   if (error.issuer) redirect.searchParams.set("iss", error.issuer);
   return Response.redirect(redirect.href, 302);
+}
+
+function authorizeFailure(stage, error, status = 500) {
+  const message = htmlEscape(safeError(error));
+  const retry = status >= 500 ? "<p>Return to ChatGPT and start the account connection again.</p>" : "";
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Torn API V2 authorization error</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}code{word-break:break-word;background:#f4f4f4;padding:2px 5px;border-radius:4px}a{display:inline-block;margin-top:12px}</style></head><body><h1>Connection could not be completed</h1><p><strong>Stage:</strong> ${htmlEscape(stage)}</p><p><strong>Details:</strong> <code>${message}</code></p>${retry}<p><a href="/authorize">Restart Torn authorization</a></p></body></html>`,
+    { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Set-Cookie": clearCsrfCookie(), ...CORS } }
+  );
 }
 
 
@@ -246,11 +271,21 @@ async function authorize(request, env) {
   try {
     oauthRequest = await parseAuthRequestCompat(oauth, request);
   } catch (error) {
-    return authorizeErrorResponse(error);
+    if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
+    return authorizeFailure("OAuth request parsing", error, 400);
   }
 
-  const client = await oauth.lookupClient(oauthRequest.clientId);
+  let client;
+  try {
+    client = await oauth.lookupClient(oauthRequest.clientId);
+  } catch (error) {
+    return authorizeFailure("OAuth client lookup", error, 400);
+  }
   if (!client) return text("Unknown OAuth client.", 400);
+
+  if (request.method === "POST" && (!env.OAUTH_KV || typeof env.OAUTH_KV.put !== "function")) {
+    return authorizeFailure("OAuth storage", new Error("The OAUTH_KV binding is not available to this Worker deployment."), 500);
+  }
 
   if (request.method === "GET") {
     const csrf = crypto.randomUUID();
@@ -268,7 +303,12 @@ async function authorize(request, env) {
 
   if (request.method !== "POST") return text("Method not allowed.", 405, { Allow: "GET,POST" });
 
-  const form = await request.formData();
+  let form;
+  try {
+    form = await request.formData();
+  } catch (error) {
+    return authorizeFailure("Authorization form", error, 400);
+  }
   const cookies = parseCookies(request);
   const csrf = String(form.get("csrf") || "");
   if (!csrf || !cookies["__Host-torn-csrf"] || csrf !== cookies["__Host-torn-csrf"]) return text("Authorization session expired. Please restart the connection.", 400);
@@ -281,10 +321,16 @@ async function authorize(request, env) {
   try {
     approvedRequest = await parseAuthRequestCompat(oauth, new Request(authUrl, { method: "GET", headers: request.headers }));
   } catch (error) {
-    return authorizeErrorResponse(error);
+    if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
+    return authorizeFailure("OAuth request validation", error, 400);
   }
 
-  const user = await validateTornKey(env, key);
+  let user;
+  try {
+    user = await validateTornKey(env, key);
+  } catch (error) {
+    return authorizeFailure("Torn API key validation", error, 502);
+  }
   if (!user) return text("The Torn API key could not be validated. Check the key and try again.", 401, { "Set-Cookie": clearCsrfCookie() });
 
   const grantedScopes = approvedRequest.scope.filter(scope => scope === MCP_SCOPE);
