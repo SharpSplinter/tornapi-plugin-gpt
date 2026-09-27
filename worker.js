@@ -8,7 +8,7 @@ const OPENAPI_TTL_MS = 15 * 60 * 1000;
 const METHODS = new Set(["get", "post", "put", "patch", "delete", "head", "options", "trace"]);
 const MCP_RESOURCE = "https://tornapi-plugin-gpt.kboone801.workers.dev/mcp";
 const MCP_SCOPE = "mcp:read";
-const BUILD_ID = "oauth-handoff-303-20260927";
+const BUILD_ID = "oauth-callback-id-diagnostic-20260927";
 
 let schemaCache = { document: null, fetchedAt: 0 };
 
@@ -513,7 +513,23 @@ export default {
     }
 
     try {
-      const response = await oauthProvider.fetch(request, env, ctx);
+      let response = await oauthProvider.fetch(request, env, ctx);
+
+      if (url.pathname === "/.well-known/oauth-authorization-server" && response.ok) {
+        try {
+          const metadata = await response.clone().json();
+          delete metadata.authorization_response_iss_parameter_supported;
+          const headers = new Headers(response.headers);
+          headers.set("X-OAuth-Iss-Compat", "callback-id");
+          response = new Response(JSON.stringify(metadata), {
+            status: response.status,
+            statusText: response.statusText,
+            headers
+          });
+        } catch (error) {
+          console.error("OAuth metadata compatibility rewrite failed", safeError(error));
+        }
+      }
 
       if (isTokenEndpoint || isMcpEndpoint) {
         console.log("OAuth/MCP response boundary", {
