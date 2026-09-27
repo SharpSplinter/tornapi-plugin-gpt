@@ -246,6 +246,18 @@ function authorizeFailure(stage, error, status = 500) {
   );
 }
 
+async function withTimeout(promise, timeoutMs, stage) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${stage} timed out after ${Math.round(timeoutMs / 1000)} seconds.`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function authorize(request, env) {
   const oauth = env.OAUTH_PROVIDER;
 
@@ -350,7 +362,7 @@ async function authorize(request, env) {
   }
 
   try {
-    const result = await oauth.completeAuthorization({
+    const result = await withTimeout(oauth.completeAuthorization({
       request: approvedRequest,
       userId: user.id,
       metadata: {
