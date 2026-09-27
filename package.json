@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^1.1.0",
+    "@cloudflare/workers-oauth-provider": "1.1.0",
     "@modelcontextprotocol/server": "^2.1.0"
   },
   "devDependencies": {
