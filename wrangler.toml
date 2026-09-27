@@ -9,5 +9,6 @@ TORN_OPENAPI_URL = "https://www.torn.com/swagger/openapi.json"
 TORN_API_BASE = "https://api.torn.com/v2"
 TORN_USER_AGENT = "TornChatGPT/1.0"
 
-# Bind a Cloudflare KV namespace named OAUTH_KV in the Workers dashboard
-# before the OAuth-enabled deployment is used.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "406d695c89204c67b75fc71a065ba113"
