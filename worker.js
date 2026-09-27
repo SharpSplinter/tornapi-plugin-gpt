@@ -285,6 +285,22 @@ async function authorize(request, env) {
   return Response.redirect(redirectTo, 302);
 }
 
+const OAUTH_RESOURCE_METADATA =
+  "https://tornapi-plugin-gpt.kboone801.workers.dev/.well-known/oauth-protected-resource/mcp";
+
+const OAUTH_CHALLENGE =
+  `Bearer resource_metadata="${OAUTH_RESOURCE_METADATA}", error="invalid_token", error_description="OAuth authorization is required to use Torn API V2."`;
+
+function oauthRequiredResult() {
+  return {
+    content: [{ type: "text", text: "Authentication required. Connect your personal Torn API account to continue." }],
+    isError: true,
+    _meta: {
+      "mcp/www_authenticate": [OAUTH_CHALLENGE]
+    }
+  };
+}
+
 async function buildMcpHandler(env, props) {
   const document = await getOpenApi(env);
   const operations = discover(document);
@@ -301,7 +317,10 @@ async function buildMcpHandler(env, props) {
         openWorldHint: true
       },
       securitySchemes: [{ type: "oauth2", scopes: [MCP_SCOPE] }]
-    }, async (args) => callTorn(env, key, item.operation, args || {}));
+    }, async (args) => {
+      if (!validKey(key)) return oauthRequiredResult();
+      return callTorn(env, key, item.operation, args || {});
+    });
   }
 
   return createMcpHandler(async () => server, { legacy: "stateless" });
@@ -309,17 +328,7 @@ async function buildMcpHandler(env, props) {
 
 const apiHandler = {
   async fetch(request, env, ctx) {
-    const props = ctx.props || {};
-    if (!validKey(props.tornApiKey)) {
-      return json(
-        { error: "Authenticated Torn credential is unavailable." },
-        401,
-        {
-          "WWW-Authenticate": 'Bearer resource_metadata="https://tornapi-plugin-gpt.kboone801.workers.dev/.well-known/oauth-protected-resource/mcp", error="invalid_token", error_description="OAuth authorization is required to use Torn API V2."'
-        }
-      );
-    }
-    const handler = await buildMcpHandler(env, props);
+    const handler = await buildMcpHandler(env, ctx.props || {});
     return handler.fetch(request);
   }
 };
