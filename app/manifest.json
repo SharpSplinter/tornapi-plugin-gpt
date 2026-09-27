@@ -1,1 +1,0 @@
-{"name":"tornapi-plugin-gpt","display_name":"Torn API","description":"Authenticated MCP access to the official Torn API v2.","version":"0.1.0","mcp":{"server_url":"https://YOUR_PUBLIC_HOST.example/mcp"},"authentication":{"type":"oauth2","scope":"torn:use"}}
