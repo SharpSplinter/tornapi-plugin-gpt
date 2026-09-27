@@ -50,11 +50,13 @@ For a shared ChatGPT project, configure OAuth 2.1 so each project participant re
 ## Deployment
 
 1. Create a Cloudflare account.
-2. Create a Workers API token with permission to deploy Workers.
-3. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets.
-4. Push to `main`.
-5. GitHub Actions deploys the Worker.
-6. Connect the resulting `/mcp` URL to ChatGPT.
+2. In Cloudflare Workers & Pages, choose Create application and connect the GitHub repository `SharpSplinter/tornapi-plugin-gpt`.
+3. Use the repository root as the build directory. No build command is required. Use `npx wrangler deploy` as the deploy command.
+4. Let Cloudflare Workers Builds deploy the `wrangler.toml` configuration on pushes to `main`.
+5. Copy the resulting `workers.dev` HTTPS URL and append `/mcp`.
+6. Connect that `/mcp` URL to ChatGPT.
+
+Cloudflare Workers Builds can manage the deployment credentials for a connected repository, so a Cloudflare API token does not need to be committed to GitHub.
 
 For production user authentication, configure OAuth 2.1 using Cloudflare's Workers OAuth Provider or Cloudflare Access and bind the resulting authenticated subject to the user's Torn credential.
 
