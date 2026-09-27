@@ -442,6 +442,26 @@ const defaultHandler = {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/authorize") return authorize(request, env);
+    if (url.pathname === "/__debug/callback-probe-9f2a" && request.method === "GET") {
+      const callback = new URL("https://chatgpt.com/connector_platform_oauth_redirect");
+      callback.searchParams.set("code", "invalid-test-code");
+      callback.searchParams.set("state", "invalid-test-state");
+      callback.searchParams.set("iss", new URL(request.url).origin);
+      try {
+        const response = await fetch(callback, { redirect: "manual" });
+        const location = response.headers.get("location") || "";
+        const body = await response.text().catch(() => "");
+        return json({
+          ok: true,
+          status: response.status,
+          contentType: response.headers.get("content-type") || "",
+          locationHost: (() => { try { return location ? new URL(location).host : ""; } catch { return "invalid-location"; } })(),
+          bodyPrefix: body.slice(0, 500)
+        });
+      } catch (error) {
+        return json({ ok: false, error: safeError(error) }, 502);
+      }
+    }
     if (url.pathname === "/health") return json({ ok: true, service: "tornapi-plugin-gpt", runtime: "cloudflare-workers", build: BUILD_ID });
     if (url.pathname === "/openapi") {
       try {
