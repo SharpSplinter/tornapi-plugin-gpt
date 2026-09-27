@@ -219,7 +219,7 @@ async function parseAuthRequestCompat(oauth, request) {
   let isChatGPT = false;
   try {
     const redirect = new URL(redirectUri);
-    isChatGPT = redirect.origin === "https://chatgpt.com" && (redirect.href === stableRedirectUri || /^\\/connector\\/oauth\\/[^/]+$/.test(redirect.pathname));
+    isChatGPT = redirect.origin === "https://chatgpt.com" && (redirect.href === stableRedirectUri || /^\/connector\/oauth\/[^/]+$/.test(redirect.pathname));
   } catch {}
   if (isChatGPT) {
     await ensureChatGPTClient(oauth, redirectUri);
