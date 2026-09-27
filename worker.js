@@ -373,7 +373,6 @@ async function authorize(request, env) {
     return authorizeFailure("OAuth grant completion", error, 500);
   }
 }
-}
 
 const OAUTH_RESOURCE_METADATA =
   "https://tornapi-plugin-gpt.kboone801.workers.dev/.well-known/oauth-protected-resource/mcp";
