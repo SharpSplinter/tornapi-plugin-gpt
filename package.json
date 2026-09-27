@@ -1,10 +1,14 @@
 {
   "name": "tornapi-plugin-gpt",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.1.0",
+    "@modelcontextprotocol/server": "^2.1.0"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
