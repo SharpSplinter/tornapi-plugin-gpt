@@ -1,1 +1,0 @@
-import fs from "node:fs/promises"; const s=JSON.parse(await fs.readFile("generated/torn-openapi.json","utf8"));if(!s.openapi||!s.paths)throw new Error("Invalid OpenAPI document");console.log("OpenAPI operations:",Object.values(s.paths).reduce((n:any,p:any)=>n+["get","post","put","patch","delete","options","head","trace"].filter(m=>p[m]).length,0));
