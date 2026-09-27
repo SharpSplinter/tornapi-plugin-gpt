@@ -208,22 +208,31 @@ function authorizeErrorResponse(error) {
 
 
 
+async function parseAuthRequestCompat(oauth, request) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("client_id")) return oauth.parseAuthRequest(request);
+
+  const redirectUri = url.searchParams.get("redirect_uri");
+  if (!redirectUri) return oauth.parseAuthRequest(request);
+
+  // Legacy ChatGPT connections may omit client_id while retaining the
+  // registered redirect URI. Recover the unique pre-registered client.
+  const clients = await oauth.listClients({ limit: 100 });
+  const matches = (clients?.items || []).filter(client =>
+    Array.isArray(client.redirectUris) && client.redirectUris.includes(redirectUri)
+  );
+
+  if (matches.length !== 1) return oauth.parseAuthRequest(request);
+
+  url.searchParams.set("client_id", matches[0].clientId);
+  return oauth.parseAuthRequest(new Request(url, request));
+}
+
 async function authorize(request, env) {
   const oauth = env.OAUTH_PROVIDER;
-  const authRequest = new URL(request.url);
-  const clientId = authRequest.searchParams.get("client_id");
-  const redirectUri = authRequest.searchParams.get("redirect_uri");
-
-  // ChatGPT may omit client_id while using its stable CIMD redirect URI.
-  // Bind only that exact redirect to ChatGPT's published CIMD document.
-  if (!clientId && redirectUri === "https://chatgpt.com/connector_platform_oauth_redirect") {
-    authRequest.searchParams.set("client_id", "https://chatgpt.com/oauth/client.json");
-  }
-
-  const effectiveRequest = new Request(authRequest, request);
   let oauthRequest;
   try {
-    oauthRequest = await oauth.parseAuthRequest(effectiveRequest);
+    oauthRequest = await parseAuthRequestCompat(oauth, request);
   } catch (error) {
     return authorizeErrorResponse(error);
   }
@@ -233,7 +242,7 @@ async function authorize(request, env) {
 
   if (request.method === "GET") {
     const csrf = crypto.randomUUID();
-    const params = authRequest.search;
+    const params = new URL(request.url).search;
     const redirectHost = (() => { try { return new URL(oauthRequest.redirectUri).host; } catch { return "the requesting app"; } })();
     const scopes = oauthRequest.scope.filter(scope => scope === MCP_SCOPE);
     const headers = new Headers({
@@ -258,7 +267,7 @@ async function authorize(request, env) {
   authUrl.search = query.startsWith("?") ? query : `?${query}`;
   let approvedRequest;
   try {
-    approvedRequest = await oauth.parseAuthRequest(new Request(authUrl, { method: "GET", headers: request.headers }));
+    approvedRequest = await parseAuthRequestCompat(oauth, new Request(authUrl, { method: "GET", headers: request.headers }));
   } catch (error) {
     return authorizeErrorResponse(error);
   }
@@ -360,5 +369,6 @@ export default new OAuthProvider({
     resource_name: "Torn API V2"
   },
   requiredScopes: [MCP_SCOPE],
-  clientIdMetadataDocumentEnabled: true
+  clientIdMetadataDocumentEnabled: true,
+  clientRegistrationEndpoint: "/oauth/register"
 });
