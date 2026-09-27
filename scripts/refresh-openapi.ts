@@ -1,0 +1,1 @@
+import fs from "node:fs/promises"; import {config} from "../src/config.js"; const r=await fetch(config.openapiUrl,{headers:{"User-Agent":config.userAgent,Accept:"application/json"}});if(!r.ok)throw new Error("HTTP "+r.status);await fs.mkdir("generated",{recursive:true});await fs.writeFile("generated/torn-openapi.json",await r.text()+"\n");
