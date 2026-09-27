@@ -241,7 +241,8 @@ async function parseAuthRequestCompat(env, oauth, request) {
   try {
     const redirect = new URL(redirectUri);
     isChatGPT = redirect.origin === CHATGPT_REDIRECT_ORIGIN &&
-      (redirect.href === stableRedirectUri || /^\\/connector\\/oauth\\/[^/]+$/.test(redirect.pathname));
+      (redirect.href === stableRedirectUri ||
+       (redirect.pathname.startsWith("/connector/oauth/") && redirect.pathname.split("/").filter(Boolean).length === 3));
   } catch {}
 
   if (isChatGPT) {
