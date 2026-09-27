@@ -452,6 +452,7 @@ export default new OAuthProvider({
   },
   requiredScopes: [MCP_SCOPE],
   clientIdMetadataDocumentEnabled: true,
+  clientRegistrationEndpoint: "/oauth/register",
   onError: (error) => {
     console.error("OAuth provider error", JSON.stringify({ code: error.code, description: error.description, internal: error.internal }));
   }
