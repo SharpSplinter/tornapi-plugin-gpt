@@ -310,7 +310,15 @@ async function buildMcpHandler(env, props) {
 const apiHandler = {
   async fetch(request, env, ctx) {
     const props = ctx.props || {};
-    if (!validKey(props.tornApiKey)) return json({ error: "Authenticated Torn credential is unavailable." }, 401);
+    if (!validKey(props.tornApiKey)) {
+      return json(
+        { error: "Authenticated Torn credential is unavailable." },
+        401,
+        {
+          "WWW-Authenticate": 'Bearer resource_metadata="https://tornapi-plugin-gpt.kboone801.workers.dev/.well-known/oauth-protected-resource/mcp", error="invalid_token", error_description="OAuth authorization is required to use Torn API V2."'
+        }
+      );
+    }
     const handler = await buildMcpHandler(env, props);
     return handler.fetch(request);
   }
