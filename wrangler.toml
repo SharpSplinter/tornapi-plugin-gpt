@@ -1,0 +1,9 @@
+name = "tornapi-chatgpt"
+main = "worker.js"
+compatibility_date = "2026-09-27"
+workers_dev = true
+
+[vars]
+TORN_OPENAPI_URL = "https://www.torn.com/swagger/openapi.json"
+TORN_API_BASE = "https://api.torn.com/v2"
+TORN_USER_AGENT = "TornChatGPT/1.0"
