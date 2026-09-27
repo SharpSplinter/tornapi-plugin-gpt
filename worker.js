@@ -248,7 +248,7 @@ async function mcp(request) {
           result: {
             protocolVersion: "2025-03-26",
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: "tornapi-chatgpt", version: "1.0.0" }
+            serverInfo: { name: "tornapi-plugin-gpt", version: "1.0.0" }
           }
         }, 200, { "MCP-Protocol-Version": "2025-03-26" });
 
@@ -294,7 +294,7 @@ export default {
     if (url.pathname === "/mcp") return mcp(request);
 
     if (url.pathname === "/health") {
-      return json({ ok: true, service: "tornapi-chatgpt", runtime: "cloudflare-workers" });
+      return json({ ok: true, service: "tornapi-plugin-gpt", runtime: "cloudflare-workers" });
     }
 
     if (url.pathname === "/openapi") {
