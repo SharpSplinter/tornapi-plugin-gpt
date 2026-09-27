@@ -373,6 +373,7 @@ async function authorize(request, env) {
   let approvedRequest;
   try {
     approvedRequest = await parseAuthRequestCompat(
+      env,
       oauth,
       new Request(session.authorizationUrl, { method: "GET" })
     );
