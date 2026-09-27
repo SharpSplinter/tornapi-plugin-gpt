@@ -297,7 +297,7 @@ async function authorize(request, env) {
         { status: 200, headers }
       );
     } catch (error) {
-      if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
+      if (error instanceof AuthorizationError) return authorizeFailure("OAuth authorization request", error, 400);
       return authorizeFailure("OAuth consent setup", error, 500);
     }
   }
@@ -334,7 +334,7 @@ async function authorize(request, env) {
       new Request(session.authorizationUrl, { method: "GET" })
     );
   } catch (error) {
-    if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
+    if (error instanceof AuthorizationError) return authorizeFailure("OAuth authorization request", error, 400);
     return authorizeFailure("OAuth request validation", error, 400);
   }
 
