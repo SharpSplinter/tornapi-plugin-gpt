@@ -290,14 +290,35 @@ async function authorize(request, env) {
   const grantedScopes = approvedRequest.scope.filter(scope => scope === MCP_SCOPE);
   if (!grantedScopes.includes(MCP_SCOPE)) return text("The requested MCP permission is unavailable.", 400, { "Set-Cookie": clearCsrfCookie() });
 
-  const { redirectTo } = await oauth.completeAuthorization({
-    request: approvedRequest,
-    userId: user.id,
-    metadata: { clientName: client.clientName || "ChatGPT", tornUserId: user.id, tornDisplayName: user.name },
-    scope: grantedScopes,
-    props: { tornApiKey: key, tornUserId: user.id, displayName: user.name }
-  });
-  return Response.redirect(redirectTo, 302);
+  try {
+    const { redirectTo } = await oauth.completeAuthorization({
+      request: approvedRequest,
+      userId: user.id,
+      metadata: { clientName: client.clientName || "ChatGPT", tornUserId: user.id, tornDisplayName: user.name },
+      scope: grantedScopes,
+      props: { tornApiKey: key, tornUserId: user.id, displayName: user.name }
+    });
+
+    if (!redirectTo) {
+      return text("OAuth authorization completed but no callback redirect was returned.", 500, {
+        "Set-Cookie": clearCsrfCookie()
+      });
+    }
+
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: redirectTo,
+        ...CORS,
+        "Cache-Control": "no-store",
+        "Set-Cookie": clearCsrfCookie()
+      }
+    });
+  } catch (error) {
+    return text("OAuth authorization could not be completed: " + safeError(error), 500, {
+      "Set-Cookie": clearCsrfCookie()
+    });
+  }
 }
 
 const OAUTH_RESOURCE_METADATA =
