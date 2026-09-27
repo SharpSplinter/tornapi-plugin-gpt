@@ -470,7 +470,22 @@ export default new OAuthProvider({
   requiredScopes: [MCP_SCOPE],
   clientIdMetadataDocumentEnabled: true,
   clientRegistrationEndpoint: "/oauth/register",
+  tokenExchangeCallback: async (options) => {
+    console.log("OAuth token exchange reached", {
+      grantType: options.grantType,
+      clientId: options.clientId,
+      subjectClientId: options.subjectClientId,
+      userIdPresent: !!options.userId,
+      scope: Array.isArray(options.scope) ? options.scope : [],
+      propsKeys: options.props && typeof options.props === "object" ? Object.keys(options.props).sort() : []
+    });
+  },
   onError: (error) => {
-    console.error("OAuth provider error", JSON.stringify({ code: error.code, description: error.description, internal: error.internal }));
+    console.error("OAuth provider error", JSON.stringify({
+      code: error.code,
+      description: error.description,
+      status: error.status,
+      internal: error.internal
+    }));
   }
 });
