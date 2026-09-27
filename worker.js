@@ -8,7 +8,7 @@ const OPENAPI_TTL_MS = 15 * 60 * 1000;
 const METHODS = new Set(["get", "post", "put", "patch", "delete", "head", "options", "trace"]);
 const MCP_RESOURCE = "https://tornapi-plugin-gpt.kboone801.workers.dev/mcp";
 const MCP_SCOPE = "mcp:read";
-const BUILD_ID = "oauth-reconnect-20260927";
+const BUILD_ID = "oauth-handoff-303-20260927";
 
 let schemaCache = { document: null, fetchedAt: 0 };
 
@@ -381,7 +381,10 @@ async function authorize(request, env) {
     headers.set("Location", result.redirectTo);
     headers.set("Cache-Control", "no-store");
     headers.set("Referrer-Policy", "no-referrer");
-    return new Response(null, { status: 302, headers });
+    headers.set("X-OAuth-Handoff", "303");
+    headers.set("X-OAuth-Redirect-Host", redirectUrl?.host || "invalid-url");
+    headers.set("X-OAuth-Redirect-Path", redirectUrl?.pathname || "invalid-url");
+    return new Response(null, { status: 303, headers });
   } catch (error) {
     return authorizeFailure("OAuth grant completion", error, 500);
   }
