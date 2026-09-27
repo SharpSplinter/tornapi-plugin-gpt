@@ -210,9 +210,20 @@ function authorizeErrorResponse(error) {
 
 async function authorize(request, env) {
   const oauth = env.OAUTH_PROVIDER;
+  const authRequest = new URL(request.url);
+  const clientId = authRequest.searchParams.get("client_id");
+  const redirectUri = authRequest.searchParams.get("redirect_uri");
+
+  // ChatGPT may omit client_id while using its stable CIMD redirect URI.
+  // Bind only that exact redirect to ChatGPT's published CIMD document.
+  if (!clientId && redirectUri === "https://chatgpt.com/connector_platform_oauth_redirect") {
+    authRequest.searchParams.set("client_id", "https://chatgpt.com/oauth/client.json");
+  }
+
+  const effectiveRequest = new Request(authRequest, request);
   let oauthRequest;
   try {
-    oauthRequest = await oauth.parseAuthRequest(request);
+    oauthRequest = await oauth.parseAuthRequest(effectiveRequest);
   } catch (error) {
     return authorizeErrorResponse(error);
   }
@@ -222,7 +233,7 @@ async function authorize(request, env) {
 
   if (request.method === "GET") {
     const csrf = crypto.randomUUID();
-    const params = new URL(request.url).search;
+    const params = authRequest.search;
     const redirectHost = (() => { try { return new URL(oauthRequest.redirectUri).host; } catch { return "the requesting app"; } })();
     const scopes = oauthRequest.scope.filter(scope => scope === MCP_SCOPE);
     const headers = new Headers({
