@@ -232,7 +232,7 @@ function authorizeFailure(stage, error, status = 500) {
     ? "<p>Return to ChatGPT and start the account connection again.</p>"
     : "";
   return new Response(
-    \`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Torn API V2 authorization error</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}code{word-break:break-word;background:#f4f4f4;padding:2px 5px;border-radius:4px}a{display:inline-block;margin-top:12px}</style></head><body><h1>Connection could not be completed</h1><p><strong>Stage:</strong> \${htmlEscape(stage)}</p><p><strong>Details:</strong> <code>\${message}</code></p>\${retry}<p><a href="/authorize">Restart Torn authorization</a></p></body></html>\`,
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Torn API V2 authorization error</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}code{word-break:break-word;background:#f4f4f4;padding:2px 5px;border-radius:4px}a{display:inline-block;margin-top:12px}</style></head><body><h1>Connection could not be completed</h1><p><strong>Stage:</strong> ${htmlEscape(stage)}</p><p><strong>Details:</strong> <code>${message}</code></p>${retry}<p><a href="/authorize">Restart Torn authorization</a></p></body></html>`,
     {
       status,
       headers: {
@@ -264,18 +264,18 @@ async function authorize(request, env) {
 
       const scopes = details.scope
         .filter(scope => scope === MCP_SCOPE)
-        .map(scope => \`<label><input type="checkbox" name="scope" value="\${htmlEscape(scope)}" checked disabled> \${htmlEscape(scope)}</label>\`)
+        .map(scope => `<label><input type="checkbox" name="scope" value="${htmlEscape(scope)}" checked disabled> ${htmlEscape(scope)}</label>`)
         .join("<br>");
 
       const clientIdentity = details.clientDomain
-        ? \`Published by <strong>\${htmlEscape(details.clientDomain)}</strong>.\`
+        ? `Published by <strong>${htmlEscape(details.clientDomain)}</strong>.`
         : "This app registered itself; its name is not verified.";
 
       const loopbackWarning = details.redirectIsLoopback
         ? "<p><strong>This sends access to an app on your computer.</strong> Continue only if you just started signing in from it.</p>"
         : "";
 
-      const page = \`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Authorize \${htmlEscape(details.clientName)}</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}input,button{font:inherit;box-sizing:border-box;padding:12px;margin-top:8px}#key{width:100%}button{cursor:pointer;width:100%}code{word-break:break-word}</style></head><body><h1>Authorize \${htmlEscape(details.clientName)}</h1><p>\${clientIdentity} Access will be sent to <strong>\${htmlEscape(details.redirectHost)}</strong>.</p>\${loopbackWarning}<p>Enter your personal Torn API key. It is validated directly with Torn and stored only in the encrypted OAuth grant. It is never sent to ChatGPT as a tool argument.</p><p>Requested permission:</p><p>\${scopes || htmlEscape(MCP_SCOPE)}</p><form method="post" action="/authorize"><input type="hidden" name="handle" value="\${htmlEscape(consent.handle)}"><input type="hidden" name="scope" value="\${htmlEscape(MCP_SCOPE)}"><label for="key">Personal Torn API key</label><input id="key" name="key" type="password" autocomplete="off" required minlength="8"><button type="submit">Connect Torn account</button></form></body></html>\`;
+      const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Authorize ${htmlEscape(details.clientName)}</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}input,button{font:inherit;box-sizing:border-box;padding:12px;margin-top:8px}#key{width:100%}button{cursor:pointer;width:100%}code{word-break:break-word}</style></head><body><h1>Authorize ${htmlEscape(details.clientName)}</h1><p>${clientIdentity} Access will be sent to <strong>${htmlEscape(details.redirectHost)}</strong>.</p>${loopbackWarning}<p>Enter your personal Torn API key. It is validated directly with Torn and stored only in the encrypted OAuth grant. It is never sent to ChatGPT as a tool argument.</p><p>Requested permission:</p><p>${scopes || htmlEscape(MCP_SCOPE)}</p><form method="post" action="/authorize"><input type="hidden" name="handle" value="${htmlEscape(consent.handle)}"><input type="hidden" name="scope" value="${htmlEscape(MCP_SCOPE)}"><label for="key">Personal Torn API key</label><input id="key" name="key" type="password" autocomplete="off" required minlength="8"><button type="submit">Connect Torn account</button></form></body></html>`;
 
       return new Response(page, { status: 200, headers: consent.headers });
     } catch (error) {
