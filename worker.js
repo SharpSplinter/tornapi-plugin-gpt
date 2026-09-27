@@ -469,6 +469,9 @@ const oauthProvider = new OAuthProvider({
   },
   requiredScopes: [MCP_SCOPE],
   clientIdMetadataDocumentEnabled: true,
+  // Keep DCR available as a compatibility fallback for MCP clients that do not use CIMD.
+  // MCP 2026 prefers CIMD, so ChatGPT can continue using its metadata-document client ID.
+  clientRegistrationEndpoint: "/oauth/register",
   tokenExchangeCallback: async (options) => {
     console.log("OAuth token exchange reached", {
       grantType: options.grantType,
