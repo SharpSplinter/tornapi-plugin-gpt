@@ -194,45 +194,6 @@ function htmlEscape(value) {
   return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
 }
 
-function parseCookies(request) {
-  const result = {};
-  for (const part of (request.headers.get("Cookie") || "").split(";")) {
-    const index = part.indexOf("=");
-    if (index > 0) result[part.slice(0, index).trim()] = part.slice(index + 1).trim();
-  }
-  return result;
-}
-
-function csrfCookie(token) {
-  return `__Host-torn-csrf=${token}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600`;
-}
-
-function clearCsrfCookie() {
-  return "__Host-torn-csrf=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0";
-}
-
-function authorizeErrorResponse(error) {
-  if (!(error instanceof AuthorizationError)) throw error;
-  if (!error.redirectUri) return text(error.description, 400);
-  const redirect = new URL(error.redirectUri);
-  redirect.searchParams.set("error", error.code);
-  redirect.searchParams.set("error_description", error.description);
-  if (error.state) redirect.searchParams.set("state", error.state);
-  if (error.issuer) redirect.searchParams.set("iss", error.issuer);
-  return Response.redirect(redirect.href, 302);
-}
-
-function authorizeFailure(stage, error, status = 500) {
-  const message = htmlEscape(safeError(error));
-  const retry = status >= 500 ? "<p>Return to ChatGPT and start the account connection again.</p>" : "";
-  return new Response(
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Torn API V2 authorization error</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}code{word-break:break-word;background:#f4f4f4;padding:2px 5px;border-radius:4px}a{display:inline-block;margin-top:12px}</style></head><body><h1>Connection could not be completed</h1><p><strong>Stage:</strong> ${htmlEscape(stage)}</p><p><strong>Details:</strong> <code>${message}</code></p>${retry}<p><a href="/authorize">Restart Torn authorization</a></p></body></html>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Set-Cookie": clearCsrfCookie(), ...CORS } }
-  );
-}
-
-
-
 async function parseAuthRequestCompat(oauth, request) {
   const url = new URL(request.url);
   const suppliedClientId = url.searchParams.get("client_id");
@@ -265,43 +226,67 @@ async function parseAuthRequestCompat(oauth, request) {
   return oauth.parseAuthRequest(new Request(url, request));
 }
 
+function authorizeFailure(stage, error, status = 500) {
+  const message = htmlEscape(safeError(error));
+  const retry = status >= 500
+    ? "<p>Return to ChatGPT and start the account connection again.</p>"
+    : "";
+  return new Response(
+    \`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Torn API V2 authorization error</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}code{word-break:break-word;background:#f4f4f4;padding:2px 5px;border-radius:4px}a{display:inline-block;margin-top:12px}</style></head><body><h1>Connection could not be completed</h1><p><strong>Stage:</strong> \${htmlEscape(stage)}</p><p><strong>Details:</strong> <code>\${message}</code></p>\${retry}<p><a href="/authorize">Restart Torn authorization</a></p></body></html>\`,
+    {
+      status,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        ...CORS
+      }
+    }
+  );
+}
+
 async function authorize(request, env) {
   const oauth = env.OAUTH_PROVIDER;
-  let oauthRequest;
-  try {
-    oauthRequest = await parseAuthRequestCompat(oauth, request);
-  } catch (error) {
-    if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
-    return authorizeFailure("OAuth request parsing", error, 400);
-  }
 
-  let client;
-  try {
-    client = await oauth.lookupClient(oauthRequest.clientId);
-  } catch (error) {
-    return authorizeFailure("OAuth client lookup", error, 400);
-  }
-  if (!client) return text("Unknown OAuth client.", 400);
-
-  if (request.method === "POST" && (!env.OAUTH_KV || typeof env.OAUTH_KV.put !== "function")) {
+  if (!env.OAUTH_KV || typeof env.OAUTH_KV.put !== "function") {
     return authorizeFailure("OAuth storage", new Error("The OAUTH_KV binding is not available to this Worker deployment."), 500);
   }
 
   if (request.method === "GET") {
-    const csrf = crypto.randomUUID();
-    const params = new URL(request.url).search;
-    const redirectHost = (() => { try { return new URL(oauthRequest.redirectUri).host; } catch { return "the requesting app"; } })();
-    const scopes = oauthRequest.scope.filter(scope => scope === MCP_SCOPE);
-    const headers = new Headers({
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-      "Cache-Control": "no-store",
-      "Set-Cookie": csrfCookie(csrf)
-    });
-    return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Torn API V2 authorization</title><style>body{font-family:system-ui,sans-serif;max-width:620px;margin:48px auto;padding:0 20px;line-height:1.5}input,button{font:inherit;width:100%;box-sizing:border-box;padding:12px;margin-top:8px}button{cursor:pointer}code{word-break:break-all}</style></head><body><h1>Torn API V2</h1><p><strong>${htmlEscape(client.clientName || "ChatGPT")}</strong> is requesting access for <code>${htmlEscape(redirectHost)}</code>.</p><p>Enter your personal Torn API key. It is validated directly with Torn and then stored only inside the encrypted OAuth grant. It is never sent to ChatGPT as a tool argument.</p><p>Requested permission: ${htmlEscape(scopes.join(", ") || MCP_SCOPE)}</p><form method="post" action="/authorize"><input type="hidden" name="csrf" value="${htmlEscape(csrf)}"><input type="hidden" name="oauth_params" value="${htmlEscape(params)}"><label for="key">Personal Torn API key</label><input id="key" name="key" type="password" autocomplete="off" required minlength="8"><button type="submit">Connect Torn account</button></form></body></html>`, { status: 200, headers });
+    let oauthRequest;
+    try {
+      oauthRequest = await parseAuthRequestCompat(oauth, request);
+      const details = await oauth.describeConsent(oauthRequest);
+      const consent = await oauth.beginConsent(oauthRequest);
+      consent.headers.set("Content-Type", "text/html; charset=utf-8");
+      consent.headers.set("Cache-Control", "no-store");
+      consent.headers.set("Referrer-Policy", "no-referrer");
+
+      const scopes = details.scope
+        .filter(scope => scope === MCP_SCOPE)
+        .map(scope => \`<label><input type="checkbox" name="scope" value="\${htmlEscape(scope)}" checked disabled> \${htmlEscape(scope)}</label>\`)
+        .join("<br>");
+
+      const clientIdentity = details.clientDomain
+        ? \`Published by <strong>\${htmlEscape(details.clientDomain)}</strong>.\`
+        : "This app registered itself; its name is not verified.";
+
+      const loopbackWarning = details.redirectIsLoopback
+        ? "<p><strong>This sends access to an app on your computer.</strong> Continue only if you just started signing in from it.</p>"
+        : "";
+
+      const page = \`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Authorize \${htmlEscape(details.clientName)}</title><style>body{font-family:system-ui,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5}input,button{font:inherit;box-sizing:border-box;padding:12px;margin-top:8px}#key{width:100%}button{cursor:pointer;width:100%}code{word-break:break-word}</style></head><body><h1>Authorize \${htmlEscape(details.clientName)}</h1><p>\${clientIdentity} Access will be sent to <strong>\${htmlEscape(details.redirectHost)}</strong>.</p>\${loopbackWarning}<p>Enter your personal Torn API key. It is validated directly with Torn and stored only in the encrypted OAuth grant. It is never sent to ChatGPT as a tool argument.</p><p>Requested permission:</p><p>\${scopes || htmlEscape(MCP_SCOPE)}</p><form method="post" action="/authorize"><input type="hidden" name="handle" value="\${htmlEscape(consent.handle)}"><input type="hidden" name="scope" value="\${htmlEscape(MCP_SCOPE)}"><label for="key">Personal Torn API key</label><input id="key" name="key" type="password" autocomplete="off" required minlength="8"><button type="submit">Connect Torn account</button></form></body></html>\`;
+
+      return new Response(page, { status: 200, headers: consent.headers });
+    } catch (error) {
+      if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
+      return authorizeFailure("OAuth consent setup", error, 500);
+    }
   }
 
-  if (request.method !== "POST") return text("Method not allowed.", 405, { Allow: "GET,POST" });
+  if (request.method !== "POST") {
+    return text("Method not allowed.", 405, { Allow: "GET,POST" });
+  }
 
   let form;
   try {
@@ -309,21 +294,13 @@ async function authorize(request, env) {
   } catch (error) {
     return authorizeFailure("Authorization form", error, 400);
   }
-  const cookies = parseCookies(request);
-  const csrf = String(form.get("csrf") || "");
-  if (!csrf || !cookies["__Host-torn-csrf"] || csrf !== cookies["__Host-torn-csrf"]) return text("Authorization session expired. Please restart the connection.", 400);
 
+  const handle = String(form.get("handle") || "");
   const key = String(form.get("key") || "").trim();
-  const query = String(form.get("oauth_params") || "");
-  const authUrl = new URL(new URL(request.url).origin + "/authorize");
-  authUrl.search = query.startsWith("?") ? query : `?${query}`;
-  let approvedRequest;
-  try {
-    approvedRequest = await parseAuthRequestCompat(oauth, new Request(authUrl, { method: "GET", headers: request.headers }));
-  } catch (error) {
-    if (error instanceof AuthorizationError) return authorizeErrorResponse(error);
-    return authorizeFailure("OAuth request validation", error, 400);
-  }
+  const requestedScopes = form.getAll("scope").map(String).filter(scope => scope === MCP_SCOPE);
+
+  if (!handle) return authorizeFailure("Consent session", new Error("The authorization handle is missing. Start the connection again."), 400);
+  if (!requestedScopes.includes(MCP_SCOPE)) return authorizeFailure("Consent scope", new Error("The requested MCP permission is missing."), 400);
 
   let user;
   try {
@@ -331,42 +308,40 @@ async function authorize(request, env) {
   } catch (error) {
     return authorizeFailure("Torn API key validation", error, 502);
   }
-  if (!user) return text("The Torn API key could not be validated. Check the key and try again.", 401, { "Set-Cookie": clearCsrfCookie() });
 
-  const grantedScopes = approvedRequest.scope.filter(scope => scope === MCP_SCOPE);
-  if (!grantedScopes.includes(MCP_SCOPE)) return text("The requested MCP permission is unavailable.", 400, { "Set-Cookie": clearCsrfCookie() });
+  if (!user) {
+    return authorizeFailure("Torn API key validation", new Error("The Torn API key could not be validated. Check the key and try again."), 401);
+  }
+
+  let approved;
+  try {
+    approved = await oauth.approveConsent(request, handle, { scope: requestedScopes });
+  } catch (error) {
+    if (error instanceof AuthorizationError) return authorizeFailure("Consent approval", error, 400);
+    return authorizeFailure("Consent approval", error, 500);
+  }
 
   try {
     const { redirectTo } = await oauth.completeAuthorization({
-      request: approvedRequest,
+      request: approved.request,
       userId: user.id,
-      metadata: { clientName: client.clientName || "ChatGPT", tornUserId: user.id, tornDisplayName: user.name },
-      scope: grantedScopes,
-      props: { tornApiKey: key, tornUserId: user.id, displayName: user.name },
-      revokeExistingGrants: false
+      metadata: {
+        clientName: (approved.request.clientId || "ChatGPT").startsWith("https://chatgpt.com/")
+          ? "ChatGPT"
+          : "Torn API V2 client",
+        tornUserId: user.id,
+        tornDisplayName: user.name
+      },
+      scope: approved.request.scope,
+      props: { tornApiKey: key, tornUserId: user.id, displayName: user.name }
     });
 
-    if (!redirectTo) {
-      return text("OAuth authorization completed but no callback redirect was returned.", 500, {
-        "Set-Cookie": clearCsrfCookie()
-      });
-    }
-
-    const safeRedirect = htmlEscape(redirectTo);
-    const redirectForPage = JSON.stringify(redirectTo).replace(/</g, "\\u003c");
-    return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=${safeRedirect}"><title>Connecting to ChatGPT</title></head><body><p>Authorization successful. Returning to ChatGPT...</p><p>If you are not redirected automatically, <a href="${safeRedirect}">continue to ChatGPT</a>.</p><script>window.location.href=\${redirectForPage};</script></body></html>`, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-        "Set-Cookie": clearCsrfCookie(),
-        ...CORS
-      }
-    });
+    approved.headers.set("Location", redirectTo);
+    approved.headers.set("Cache-Control", "no-store");
+    approved.headers.set("Referrer-Policy", "no-referrer");
+    return new Response(null, { status: 302, headers: approved.headers });
   } catch (error) {
-    return text("OAuth authorization could not be completed: " + safeError(error), 500, {
-      "Set-Cookie": clearCsrfCookie()
-    });
+    return authorizeFailure("OAuth grant completion", error, 500);
   }
 }
 
